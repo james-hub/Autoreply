@@ -1,0 +1,78 @@
+Another Autoreply script for Postfix MTA
+Written by: Sebastian Zdrojewski (2010)
+             en3py@hotmail.com
+             www.en3py.net
+
+This is an executable script that sends an automatic reply message to an e-mail sent
+to a specific mailbox. Each mailbox can have a custom message and a timeframe of
+a valid period where it should work.
+
+Version 1.0 (stable) has current fixed features:
+- Cache time statically set to 4 hours
+- MySQL connection data handled via my.ini file in /etc
+
+Credits
+The mailing function is handlet using the AbstractMail class written by Gustavo Gomes
+and available through PHP Classes
+- http://www.phpclasses.org/simplemail
+
+INSTALLATION
+
+This script needs a MySQL database with SELECT grants over the mailbox_users and
+mailbox_outofoffice tables, and INSERT,DELETE grants over the autoreply_cache table.
+To allow the program working you need to do as follows:
+
+1. Install the required tables. 
+
+Just cat the autoreply.sql file into your MySQL database. If you are installing it 
+within an existing structure (i.e. you already have a populated Mailbox Database
+table) you will need to change a bit the SQL statement at row 44 to match your needs.
+
+2. Set access information in your my.ini file
+
+This was made to reduce the number of files containing MySQL credentials. You should
+have something like follows in your my.cnf file within the [client] section:
+
+<snip>
+	[client]
+	socket=/var/lib/mysql/mysql.sock
+	port=3306
+	user=username
+	password=password
+</snip>
+
+3. Set Postfix settings for autoreply
+
+Within your postfix configuration file you will need to set the script to be
+ececuted for autoreplies. In your main.cf file you should find something like:
+
+<snip>
+	transport_maps = hash:/etc/postfix/transport
+</snip>
+
+Within the transport file:
+
+<snip>
+	autoreply.en3pylabs.com     autoreply:
+</snip>
+
+And finally within your master.cf file:
+
+<snip>
+	autoreply unix  -       n       n       -       -       pipe
+		flags=  user=nobody  argv=/opt/en3pylabs/bin/autoreply $sender $mailbox
+</snip>
+
+(match your installation directory within the master.cf configuration). Also
+make sure the user running Postfix is allowed to execute the autoreply script.
+
+3. Set the autoreply settings.
+
+At row 28 and 29 you will find the only two settings you need to run the script.
+The name of the domain handling autoreplies and the database name containing
+system tables. Referring to the Postfix documentation if you will create an
+alias of your mailbox to the autoreply handler, you should receive the out
+of office message and see it appear within your autoreply_cache table.
+
+That should be it, if you need any further assistance, please feel free to
+contact me.

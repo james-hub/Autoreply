@@ -1,0 +1,102 @@
+#!/usr/bin/php -q
+<?php
+
+/*
+ * Another Autoreply script for Postfix MTA
+ * Written by: Sebastian Zdrojewski (2010)
+ *             en3py@hotmail.com
+ *             www.en3py.net
+ *
+ * This is an executable script that sends an automatic reply message to an e-mail sent
+ * to a specific mailbox. Each mailbox can have a custom message and a timeframe of
+ * a valid period where it should work.
+ *
+ * Version 1.0 (stable) has current fixed features:
+ * - Cache time statically set to 4 hours
+ * - MySQL connection data handled via my.ini file in /etc
+ *
+ * Credits
+ * The mailing function is handlet using the AbstractMail class written by Gustavo Gomes
+ * and available through PHP Classes
+ * - http://www.phpclasses.org/simplemail
+ *
+ * Usage
+ * Please refer to the README file for further information on this program usage.
+ */
+
+# Global settings
+$tld       = '@autoreply.en3pylabs.com';		# Your domain name here
+$db_name   = 'mailserver';						# Database name
+
+# Require framework file
+require "Mail.php";
+
+syslog( LOG_ALERT, sprintf( "Invoked autoreply 0 [%s] 1 [%s] 2 [%s]", $argv[0], $argv[1], $argv[2] ) );
+
+# Sanity checks
+$atom = '[-a-z0-9+=^_~]';
+$domain = '(([-a-z0-9]*[a-z0-9]+)?)';
+$email_regex = '^' . $atom . '+' . '(\.' . $atom . '+)*'. '@'. '(' . $domain . '{1,63}\.)+'. $domain . '{2,63}'. '$';
+define( "REGEX_EMAIL", $email_regex );
+
+# Define input variables
+$sender = ereg_replace( $tld, "", $argv[1] );
+$recipient = ereg_replace( $tld, "", $argv[2] );
+
+# Sanity check
+if ( !eregi( REGEX_EMAIL, $sender ) ) {
+    # Invalid sender e-mail address
+    exit( 1 );
+}
+
+if ( !eregi( REGEX_EMAIL, $recipient ) ) {
+    # Invalid recipient e-mail address
+    exit( 1 );
+}
+
+# Setup DB connection using system defaults
+$h = mysql_select_db( $db_name );
+
+# Select autoreply message based on sender address
+$sql = 'SELECT message_body
+        FROM mailbox_outofoffice mo
+        LEFT JOIN mailbox_users USING ( ID_mailbox )
+        WHERE mailbox_username = "%s"
+                AND mo.flag_active = 1
+                AND NOW() BETWEEN date_begin AND date_end
+        LIMIT 1';
+$sql = sprintf( $sql, mysql_real_escape_string( $recipient ) );
+$r = mysql_query( $sql ) or print mysql_error();
+
+list( $message ) = mysql_fetch_row( $r );
+
+if ( strlen( trim( $message ) ) == 0 ) exit( 0 );
+
+# Has this sender been already notified in past 4 hours?
+$sql = 'SELECT COUNT(*)
+        FROM autoreply_cache
+        WHERE email_address = "%s" AND email_recipient = "%s"
+                AND DATE_SUB( NOW(), INTERVAL 4 HOUR ) <= date_lastsent';
+$sql = sprintf( $sql,
+    mysql_real_escape_string( $sender ),
+    mysql_real_escape_string( $recipient ) );
+
+$r = mysql_query( $sql );
+list( $count ) = mysql_fetch_row( $r );
+if ( $count == 1 ) exit( 0 );
+
+$obj = new Mail( $sender, "Auto reply message", null, $recipient );
+$obj->setBodyText( $message );
+$obj->send();
+
+# Cache the recipient of autoreply message
+$sql = 'REPLACE INTO autoreply_cache VALUES ( "%s", "%s", NOW() )';
+$sql = sprintf( $sql,
+    mysql_real_escape_string( $sender ),
+    mysql_real_escape_string( $recipient ) );
+
+mysql_query( $sql ) or die( mysql_error() );
+
+exit( 0 );
+
+
